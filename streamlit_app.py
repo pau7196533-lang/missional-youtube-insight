@@ -1,6 +1,7 @@
 import io
 import os
 import re
+import unicodedata
 from datetime import datetime
 from html import escape
 from pathlib import Path
@@ -172,18 +173,24 @@ def to_text_download(result: str, youtube_url: str, lens: str) -> bytes:
     return (header + result).encode("utf-8")
 
 
-def find_korean_font() -> str | None:
+def find_korean_font_paths() -> tuple[str | None, str | None]:
+    app_dir = Path(__file__).resolve().parent
+    bundled_regular = app_dir / "assets" / "fonts" / "NanumGothic-Regular.ttf"
+    bundled_bold = app_dir / "assets" / "fonts" / "NanumGothic-Bold.ttf"
+    if bundled_regular.exists() and bundled_bold.exists():
+        return str(bundled_regular), str(bundled_bold)
+
     candidates = [
-        Path("C:/Windows/Fonts/malgun.ttf"),
-        Path("C:/Windows/Fonts/malgunbd.ttf"),
-        Path("/System/Library/Fonts/AppleSDGothicNeo.ttc"),
-        Path("/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc"),
-        Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+        (Path("C:/Windows/Fonts/malgun.ttf"), Path("C:/Windows/Fonts/malgunbd.ttf")),
+        (Path("/System/Library/Fonts/AppleSDGothicNeo.ttc"), None),
+        (Path("/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc"), None),
+        (Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"), None),
+        (Path("/usr/share/fonts/truetype/nanum/NanumGothic.ttf"), Path("/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf")),
     ]
-    for candidate in candidates:
-        if candidate.exists():
-            return str(candidate)
-    return None
+    for regular, bold in candidates:
+        if regular.exists():
+            return str(regular), str(bold) if bold and bold.exists() else None
+    return None, None
 
 
 def register_pdf_font() -> tuple[str, str]:
@@ -193,13 +200,12 @@ def register_pdf_font() -> tuple[str, str]:
 
     regular_font = "KoreanBody"
     bold_font = "KoreanBodyBold"
-    font_path = find_korean_font()
+    regular_path, bold_path = find_korean_font_paths()
 
-    if font_path:
-        pdfmetrics.registerFont(TTFont(regular_font, font_path))
-        bold_path = Path("C:/Windows/Fonts/malgunbd.ttf")
-        if bold_path.exists():
-            pdfmetrics.registerFont(TTFont(bold_font, str(bold_path)))
+    if regular_path:
+        pdfmetrics.registerFont(TTFont(regular_font, regular_path))
+        if bold_path:
+            pdfmetrics.registerFont(TTFont(bold_font, bold_path))
         else:
             bold_font = regular_font
         return regular_font, bold_font
@@ -213,8 +219,17 @@ def register_pdf_font() -> tuple[str, str]:
     return regular_font, bold_font
 
 
+def sanitize_pdf_text(text: str) -> str:
+    normalized = unicodedata.normalize("NFC", text)
+    return "".join(
+        char
+        for char in normalized
+        if char in "\n\t" or (unicodedata.category(char)[0] != "C" and not 0xD800 <= ord(char) <= 0xDFFF)
+    )
+
+
 def markdown_line_to_pdf_text(line: str) -> str:
-    cleaned = line.strip()
+    cleaned = sanitize_pdf_text(line).strip()
     cleaned = re.sub(r"^#{1,6}\s*", "", cleaned)
     cleaned = re.sub(r"^\s*[-*+]\s+", "• ", cleaned)
     cleaned = re.sub(r"\*\*(.*?)\*\*", r"\1", cleaned)
@@ -242,6 +257,7 @@ def to_pdf_download(result: str, youtube_url: str, lens: str) -> bytes:
         fontSize=17,
         leading=22,
         spaceAfter=8,
+        wordWrap="CJK",
     )
     heading_style = ParagraphStyle(
         "KoreanHeading",
@@ -251,6 +267,7 @@ def to_pdf_download(result: str, youtube_url: str, lens: str) -> bytes:
         leading=18,
         spaceBefore=8,
         spaceAfter=6,
+        wordWrap="CJK",
     )
     body_style = ParagraphStyle(
         "KoreanBody",
@@ -259,6 +276,7 @@ def to_pdf_download(result: str, youtube_url: str, lens: str) -> bytes:
         fontSize=10.5,
         leading=16,
         spaceAfter=7,
+        wordWrap="CJK",
     )
 
     doc = SimpleDocTemplate(

@@ -9,6 +9,11 @@
 - 영적 통찰(Missional Insight): 선교 현장, 유학생 사역, 현대 선교 전략 적용점
 - TXT/PDF 다운로드
 - Streamlit Community Cloud와 Google Cloud Run 배포 지원
+- PDF 한글 깨짐 방지를 위한 나눔고딕 폰트 임베드
+
+## 폰트
+
+배포 환경에서 PDF 한글이 깨지지 않도록 Google Fonts의 Nanum Gothic을 `assets/fonts`에 포함합니다. 폰트는 SIL Open Font License 1.1을 따릅니다.
 
 ## 로컬 실행
 
