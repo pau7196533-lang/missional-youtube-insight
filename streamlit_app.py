@@ -18,6 +18,13 @@ except ImportError:
 
 APP_TITLE = "AI 유튜브 선교 인사이트 분석기"
 DEFAULT_MODEL = "gemini-2.5-flash"
+API_KEY_PLACEHOLDERS = {
+    "your_google_ai_studio_api_key_here",
+    "your_gemini_api_key_here",
+    "google ai studio에서 발급한 api 키",
+    "google ai studio api 키",
+    "gemini api 키",
+}
 
 SYSTEM_INSTRUCTION = """
 너는 세계적인 기독교 전략가이자 선교학 교수이다. 입력된 유튜브 내용을 바탕으로 다음 4가지 항목을 작성하라.
@@ -55,6 +62,20 @@ def get_default_api_key() -> str:
     except Exception:
         secret_key = None
     return os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or secret_key or ""
+
+
+def normalize_api_key(api_key: str) -> str:
+    cleaned = api_key.strip().strip('"').strip("'")
+    lowered = cleaned.lower()
+    if not cleaned:
+        raise RuntimeError("Gemini API 키를 입력해 주세요.")
+    if lowered in API_KEY_PLACEHOLDERS or "api 키" in lowered or "발급한" in lowered:
+        raise RuntimeError("API 키 칸에 안내 문구가 들어가 있습니다. Google AI Studio에서 발급한 실제 키를 붙여넣어 주세요.")
+    if any(ord(char) > 127 for char in cleaned):
+        raise RuntimeError("API 키에는 한글이나 특수 유니코드 문자가 들어갈 수 없습니다. 실제 Gemini API 키는 보통 `AIza...`로 시작하는 영문/숫자 조합입니다.")
+    if any(char.isspace() for char in cleaned):
+        raise RuntimeError("API 키에 공백이나 줄바꿈이 포함되어 있습니다. 키만 다시 붙여넣어 주세요.")
+    return cleaned
 
 
 def build_user_prompt(youtube_url: str, lens: str, extra_focus: str) -> str:
@@ -104,10 +125,11 @@ def analyze_youtube_video(api_key: str, youtube_url: str, lens: str, extra_focus
     if genai is None or types is None:
         raise RuntimeError("google-genai 패키지가 설치되어 있지 않습니다. `pip install google-genai`를 실행해 주세요.")
 
+    cleaned_api_key = normalize_api_key(api_key)
     prompt = build_user_prompt(youtube_url, lens, extra_focus)
 
     try:
-        client = genai.Client(api_key=api_key)
+        client = genai.Client(api_key=cleaned_api_key)
         response = client.models.generate_content(
             model=model_name,
             contents=types.Content(
@@ -125,6 +147,8 @@ def analyze_youtube_video(api_key: str, youtube_url: str, lens: str, extra_focus
         )
     except Exception as exc:
         message = str(exc)
+        if isinstance(exc, UnicodeEncodeError) or "ascii" in message.lower():
+            raise RuntimeError("API 키에 한글 또는 비ASCII 문자가 포함되어 요청 헤더를 만들 수 없습니다. Google AI Studio에서 발급한 실제 API 키만 입력해 주세요.") from exc
         if "API key" in message or "API_KEY" in message or "PERMISSION_DENIED" in message:
             raise RuntimeError("Gemini API 키가 올바르지 않거나 권한이 없습니다. Google AI Studio에서 발급한 키인지 확인해 주세요.") from exc
         if "not found" in message.lower() or "not supported" in message.lower() or "404" in message:
