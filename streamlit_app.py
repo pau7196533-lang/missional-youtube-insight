@@ -9,13 +9,15 @@ from pathlib import Path
 import streamlit as st
 
 try:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types
 except ImportError:
     genai = None
+    types = None
 
 
 APP_TITLE = "AI 유튜브 선교 인사이트 분석기"
-DEFAULT_MODEL = "gemini-1.5-pro"
+DEFAULT_MODEL = "gemini-2.5-flash"
 
 SYSTEM_INSTRUCTION = """
 너는 세계적인 기독교 전략가이자 선교학 교수이다. 입력된 유튜브 내용을 바탕으로 다음 4가지 항목을 작성하라.
@@ -99,33 +101,38 @@ def build_user_prompt(youtube_url: str, lens: str, extra_focus: str) -> str:
 
 
 def analyze_youtube_video(api_key: str, youtube_url: str, lens: str, extra_focus: str, model_name: str) -> str:
-    if genai is None:
-        raise RuntimeError("google-generativeai 패키지가 설치되어 있지 않습니다. `pip install google-generativeai`를 실행해 주세요.")
-
-    genai.configure(api_key=api_key)
-
-    model = genai.GenerativeModel(
-        model_name=model_name,
-        system_instruction=SYSTEM_INSTRUCTION,
-        generation_config={
-            "temperature": 0.35,
-            "top_p": 0.9,
-            "max_output_tokens": 8192,
-        },
-    )
+    if genai is None or types is None:
+        raise RuntimeError("google-genai 패키지가 설치되어 있지 않습니다. `pip install google-genai`를 실행해 주세요.")
 
     prompt = build_user_prompt(youtube_url, lens, extra_focus)
 
-    # Gemini API accepts public YouTube URLs as file_data parts.
-    # The preview feature supports public videos only; private/unlisted videos may fail.
-    video_part = {
-        "file_data": {
-            "file_uri": youtube_url,
-            "mime_type": "video/*",
-        }
-    }
+    try:
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model=model_name,
+            contents=types.Content(
+                parts=[
+                    types.Part(file_data=types.FileData(file_uri=youtube_url)),
+                    types.Part(text=prompt),
+                ]
+            ),
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_INSTRUCTION,
+                temperature=0.35,
+                top_p=0.9,
+                max_output_tokens=8192,
+            ),
+        )
+    except Exception as exc:
+        message = str(exc)
+        if "API key" in message or "API_KEY" in message or "PERMISSION_DENIED" in message:
+            raise RuntimeError("Gemini API 키가 올바르지 않거나 권한이 없습니다. Google AI Studio에서 발급한 키인지 확인해 주세요.") from exc
+        if "not found" in message.lower() or "not supported" in message.lower() or "404" in message:
+            raise RuntimeError(f"모델 `{model_name}`을 사용할 수 없습니다. 기본 모델 `{DEFAULT_MODEL}` 또는 `gemini-2.5-pro`를 사용해 보세요.") from exc
+        if "youtube" in message.lower() or "file_uri" in message.lower() or "invalid argument" in message.lower():
+            raise RuntimeError("유튜브 URL을 Gemini가 처리하지 못했습니다. 공개 영상인지, 전체 URL 형식인지 확인해 주세요.") from exc
+        raise
 
-    response = model.generate_content([video_part, prompt])
     return response.text or "분석 결과가 비어 있습니다. 다른 영상이나 더 구체적인 분석 초점을 입력해 보세요."
 
 
@@ -272,7 +279,11 @@ def main() -> None:
                 type="password",
                 help="배포 환경에서는 GOOGLE_API_KEY, GEMINI_API_KEY 또는 Streamlit secrets를 권장합니다.",
             )
-        model_name = st.text_input("모델명", value=DEFAULT_MODEL, help="요청 사양에 맞춰 기본값은 gemini-1.5-pro입니다.")
+        model_name = st.text_input(
+            "모델명",
+            value=DEFAULT_MODEL,
+            help="유튜브 URL 분석은 현재 Gemini 2.5 계열을 권장합니다. 더 깊은 분석이 필요하면 gemini-2.5-pro를 입력하세요.",
+        )
         lens = st.selectbox("분석 렌즈", list(LENS_GUIDES.keys()))
         extra_focus = st.text_area(
             "추가 분석 초점",
@@ -308,9 +319,13 @@ def main() -> None:
         elif not is_valid_youtube_url(youtube_url):
             st.error("올바른 유튜브 URL 형식인지 확인해 주세요.")
         else:
+            selected_model = model_name.strip() or DEFAULT_MODEL
+            if selected_model in {"gemini-1.5-pro", "models/gemini-1.5-pro"}:
+                st.warning(f"`{selected_model}`은 현재 유튜브 URL 분석에서 오류가 날 수 있어 `{DEFAULT_MODEL}`로 실행합니다.")
+                selected_model = DEFAULT_MODEL
             with st.spinner("영상을 분석하는 중입니다. 긴 영상은 시간이 조금 걸릴 수 있습니다."):
                 try:
-                    result = analyze_youtube_video(api_key, youtube_url, lens, extra_focus, model_name.strip())
+                    result = analyze_youtube_video(api_key, youtube_url, lens, extra_focus, selected_model)
                     st.session_state.analysis_result = result
                     st.session_state.last_url = youtube_url
                     st.session_state.last_lens = lens
@@ -361,14 +376,13 @@ def main() -> None:
     with st.expander("설치 및 실행 방법"):
         st.code(
             """
-pip install streamlit google-generativeai reportlab
+pip install streamlit google-genai reportlab
 streamlit run streamlit_app.py
             """.strip(),
             language="bash",
         )
         st.markdown(
-            "참고: 2026년 기준 Google 공식 문서는 신규 SDK인 `google-genai`를 권장하지만, "
-            "이 예제는 요청 사양에 맞춰 `google-generativeai`를 사용합니다."
+            "참고: Google 공식 문서는 현재 신규 SDK인 `google-genai`와 Gemini 2.5 계열 모델을 권장합니다."
         )
 
 

@@ -1,6 +1,6 @@
 # Google AI Studio 프로젝트 연결 안내
 
-이 Streamlit 앱은 Google AI Studio에서 발급한 Gemini API 키를 사용해 실행됩니다.
+이 Streamlit 앱은 Google AI Studio에서 발급한 Gemini API 키를 사용해 실행됩니다. Gemini API의 현재 유튜브 URL 입력 방식에 맞춰 `google-genai` SDK와 Gemini 2.5 계열 모델을 사용합니다.
 
 ## 1. AI Studio 프로젝트 준비
 
@@ -34,4 +34,4 @@ python -m streamlit run streamlit_app.py
 - Google AI Studio의 프로젝트는 Gemini API 키가 연결되는 Google Cloud 프로젝트입니다.
 - 공개 YouTube 영상 URL만 Gemini API의 직접 영상 분석 입력으로 사용할 수 있습니다.
 - 비공개 또는 일부 공개 영상은 API 제한으로 실패할 수 있습니다.
-- 요청 사양에 맞춰 `google-generativeai`를 사용했지만, Google 공식 문서는 신규 앱에는 `google-genai` SDK 사용을 권장합니다.
+- Google 공식 문서는 신규 앱에 `google-genai` SDK 사용을 권장합니다.
