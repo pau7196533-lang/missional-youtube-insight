@@ -32,3 +32,11 @@ GEMINI_API_KEY = "Google AI Studio에서 발급한 API 키"
 ```
 
 서버 Secret을 등록하지 않으면 사용자가 앱 사이드바에서 직접 Gemini API 키를 입력해 사용할 수 있습니다.
+
+## GitHub 업로드 스크립트
+
+GitHub CLI를 설치하고 로그인한 뒤 아래 명령으로 저장소 생성과 푸시를 실행할 수 있습니다.
+
+```powershell
+.\publish_to_github.ps1 -RepoName missional-youtube-insight -Visibility public
+```
