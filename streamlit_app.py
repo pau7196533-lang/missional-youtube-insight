@@ -1,7 +1,6 @@
 import io
 import os
 import re
-import textwrap
 from datetime import datetime
 from html import escape
 from pathlib import Path
@@ -187,32 +186,71 @@ def find_korean_font() -> str | None:
     return None
 
 
+def register_pdf_font() -> tuple[str, str]:
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    regular_font = "KoreanBody"
+    bold_font = "KoreanBodyBold"
+    font_path = find_korean_font()
+
+    if font_path:
+        pdfmetrics.registerFont(TTFont(regular_font, font_path))
+        bold_path = Path("C:/Windows/Fonts/malgunbd.ttf")
+        if bold_path.exists():
+            pdfmetrics.registerFont(TTFont(bold_font, str(bold_path)))
+        else:
+            bold_font = regular_font
+        return regular_font, bold_font
+
+    # Streamlit Cloud/Linux often has no Korean TTF installed. ReportLab's
+    # built-in Korean CID font keeps Hangul readable without bundling a font.
+    regular_font = "HYSMyeongJo-Medium"
+    bold_font = "HYGoThic-Medium"
+    pdfmetrics.registerFont(UnicodeCIDFont(regular_font))
+    pdfmetrics.registerFont(UnicodeCIDFont(bold_font))
+    return regular_font, bold_font
+
+
+def markdown_line_to_pdf_text(line: str) -> str:
+    cleaned = line.strip()
+    cleaned = re.sub(r"^#{1,6}\s*", "", cleaned)
+    cleaned = re.sub(r"^\s*[-*+]\s+", "• ", cleaned)
+    cleaned = re.sub(r"\*\*(.*?)\*\*", r"\1", cleaned)
+    cleaned = re.sub(r"`([^`]*)`", r"\1", cleaned)
+    return escape(cleaned)
+
+
 def to_pdf_download(result: str, youtube_url: str, lens: str) -> bytes:
     try:
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
         from reportlab.lib.units import mm
-        from reportlab.pdfbase import pdfmetrics
-        from reportlab.pdfbase.ttfonts import TTFont
         from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
     except ImportError as exc:
         raise RuntimeError("PDF 저장에는 reportlab이 필요합니다. `pip install reportlab`을 실행해 주세요.") from exc
 
     buffer = io.BytesIO()
-    font_name = "Helvetica"
-    font_path = find_korean_font()
-    if font_path:
-        font_name = "KoreanBody"
-        pdfmetrics.registerFont(TTFont(font_name, font_path))
+    font_name, bold_font_name = register_pdf_font()
 
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle(
         "KoreanTitle",
         parent=styles["Title"],
-        fontName=font_name,
+        fontName=bold_font_name,
         fontSize=17,
         leading=22,
         spaceAfter=8,
+    )
+    heading_style = ParagraphStyle(
+        "KoreanHeading",
+        parent=styles["Heading2"],
+        fontName=bold_font_name,
+        fontSize=13,
+        leading=18,
+        spaceBefore=8,
+        spaceAfter=6,
     )
     body_style = ParagraphStyle(
         "KoreanBody",
@@ -248,12 +286,11 @@ def to_pdf_download(result: str, youtube_url: str, lens: str) -> bytes:
             continue
         if line.startswith("# "):
             story.append(Spacer(1, 7))
-            story.append(Paragraph(f"<b>{escape(line[2:])}</b>", title_style))
+            story.append(Paragraph(markdown_line_to_pdf_text(line), title_style))
         elif line.startswith("## "):
-            story.append(Paragraph(f"<b>{escape(line[3:])}</b>", body_style))
+            story.append(Paragraph(markdown_line_to_pdf_text(line), heading_style))
         else:
-            wrapped = "<br/>".join(escape(part) for part in textwrap.wrap(line, width=95) or [""])
-            story.append(Paragraph(wrapped, body_style))
+            story.append(Paragraph(markdown_line_to_pdf_text(line), body_style))
 
     doc.build(story)
     return buffer.getvalue()
